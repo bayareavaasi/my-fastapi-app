@@ -1,0 +1,21 @@
+# 1. Virtual Environment (The most important one!)
+.venv/
+venv/
+ENV/
+
+# 2. Python Cache (Speeds up local execution, but junk for the cloud)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 3. Environment Variables (SENSITIVE - Never upload passwords/keys)
+.env
+.env.local
+
+# 4. Operating System Junk
+.DS_Store
+Thumbs.db
+
+# 5. IDE Settings (Optional, but keeps things clean)
+.vscode/
+.idea/
