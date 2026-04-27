@@ -2,7 +2,7 @@ name: Daily Nifty IT Monitor
 on:
   schedule:
     # 10:00 UTC is 3:30 PM IST (Mon-Fri)
-    - cron: '0 10 * * 1-5'
+    - cron: '45 10 * * 1-5'
   workflow_dispatch: # Allows you to run it manually for testing
 
 jobs:
