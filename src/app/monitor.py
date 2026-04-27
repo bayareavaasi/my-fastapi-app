@@ -1,4 +1,5 @@
 import yfinance as yf
+from notifier import send_email_alert
 
 def get_nifty_it_status():
     # NSE Ticker for Nifty IT is ^CNXIT
@@ -29,4 +30,11 @@ def get_nifty_it_status():
     return status
 
 if __name__ == "__main__":
-    print(get_nifty_it_status())
+    # 1. Get the data
+    report = get_nifty_it_status()
+    print(report)
+    
+    # 2. TRIGGER THE EMAIL
+    print("Attempting to send email...")
+    result = send_email_alert(report)
+    print(result)
