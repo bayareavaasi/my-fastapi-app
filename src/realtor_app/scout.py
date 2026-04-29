@@ -5,7 +5,7 @@ from homeharvest import scrape_property  # Correct: No underscore
 from datetime import datetime
 
 # Path Hack: Add repo root to sys.path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'app'))
 
 try:
     from notifier import send_email_alert
@@ -108,4 +108,6 @@ def run_scout():
 if __name__ == "__main__":
     content = run_scout()
     print(content)
-    send_email_alert(content)
+    print("Attempting to send email...")
+    result = send_email_alert(content)
+    print(result)
