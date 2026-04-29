@@ -3,34 +3,28 @@ import pandas as pd
 from homeharvest import scrape_property
 from datetime import datetime
 
-# Local import from the same directory (src/realtor_app)
+# Local import from the same directory
 try:
     from realtor_notifier import send_realtor_email
 except ImportError:
-    # Fixed fallback name to prevent NameError in __main__
     def send_realtor_email(content): 
-        return "⚠️ Fallback: realtor_notifier.py not found in local path."
+        return "⚠️ Fallback: realtor_notifier.py not found."
 
 def estimate_monthly_cash_flow(price, est_rent):
     """
-    Deterministic cash flow calculation for a 25% down, 30yr fixed mortgage at 7%.
-    Includes reserves for taxes, insurance, maintenance, and vacancy.
+    SRE Underwriting: 25% Down, 7% Interest.
+    Includes property tax, insurance, and 15% combined reserves.
     """
-    if not price or not est_rent:
-        return 0
+    if not price or price < 50000: return 0 # Guard against auctions/data errors
     
-    # Assumptions
-    property_tax_rate = 0.012  # 1.2% annual
-    insurance_monthly = 100
+    property_tax_rate = 0.012 
+    insurance_monthly = 125
     maintenance_reserves = est_rent * 0.10
     vacancy_reserves = est_rent * 0.05
     
-    # Financing
     loan_amount = price * 0.75
-    r = 0.07 / 12  # Monthly interest rate
-    n = 360        # 30 years
-    
-    # Standard Amortization Formula
+    r = 0.07 / 12
+    n = 360
     monthly_mortgage = (loan_amount * (r * (1 + r)**n)) / ((1 + r)**n - 1)
     monthly_taxes = (price * property_tax_rate) / 12
     
@@ -38,24 +32,20 @@ def estimate_monthly_cash_flow(price, est_rent):
     return est_rent - total_expenses
 
 def format_realtor_report(df):
-    """
-    Generates a clean Markdown-ready report for the email body.
-    """
-    current_date = datetime.now().strftime('%Y-%m-%d')
-    
-    report = f"🏠 **Saturday Real Estate Scout: Top 10 Cash-Flow Leads**\n"
+    current_date = datetime.now().strftime('%d %b %Y')
+    report = f"🏠 **Saturday Real Estate Scout: Weekly Suburban Sweep**\n"
     report += f"Generated: {current_date}\n"
-    report += "Criteria: Single-Family, No HOA, Sanity-Capped Rents\n"
+    report += "Criteria: Zip-Targeted, No HOA, Price > $50k\n"
     report += "-------------------------------------------\n\n"
 
     for _, row in df.iterrows():
         yield_pct = (row['est_monthly_rent'] / row['list_price']) * 100
-        
         report += (
-            f"📍 **{row['street']}, {row['city']}**\n"
+            f"📍 **{row['street']}, {row['city']} {row['zip_code']}**\n"
+            f"🏙️ Submarket: {row['submarket']}\n"
             f"💰 Price: ${row['list_price']:,.0f}\n"
             f"💵 **Est. Net Cash Flow: ${row['net_cash_flow']:,.2f}/mo**\n"
-            f"📈 Est. Rent: ${row['est_monthly_rent']:,.0f}/mo (Capped)\n"
+            f"📈 Est. Rent: ${row['est_monthly_rent']:,.0f}/mo\n"
             f"📊 Yield Score: {yield_pct:.2f}%\n"
             f"🔗 [View Listing]({row['property_url']})\n"
             f"-------------------------------------------\n"
@@ -63,79 +53,77 @@ def format_realtor_report(df):
     return report
 
 def run_scout():
-    """
-    Scrapes selected markets, applies investor filters, and ranks by cash flow.
-    """
+    # Targeted Market Matrix
     markets = [
-        {
-            "city": "Indianapolis", "state": "IN", 
-            "rent_factor": 0.009, "rent_min": 900, "rent_max": 2200
-        },
-        {
-            "city": "Charlotte", "state": "NC", 
-            "rent_factor": 0.008, "rent_min": 1400, "rent_max": 3000
-        },
-        {
-            "city": "Kansas City", "state": "MO", 
-            "rent_factor": 0.010, "rent_min": 1000, "rent_max": 2500
-        },
-        {
-            "city": "Oklahoma City", "state": "OK", 
-            "rent_factor": 0.011, "rent_min": 900, "rent_max": 2100
-        }
+        # --- Indianapolis Metro (IN) ---
+        {"zip": "46112", "sub": "Brownsburg", "rent_factor": 0.008, "min": 1400, "max": 2800},
+        {"zip": "46123", "sub": "Avon", "rent_factor": 0.008, "min": 1400, "max": 2800},
+        {"zip": "46168", "sub": "Plainfield", "rent_factor": 0.0085, "min": 1300, "max": 2600},
+        {"zip": "46239", "sub": "Franklin Township", "rent_factor": 0.0085, "min": 1400, "max": 2700},
+        {"zip": "46143", "sub": "Greenwood", "rent_factor": 0.0085, "min": 1300, "max": 2600},
+        {"zip": "46038", "sub": "Fishers", "rent_factor": 0.0075, "min": 1800, "max": 3500},
+
+        # --- Kansas City Metro (MO) ---
+        {"zip": "64068", "sub": "Liberty", "rent_factor": 0.009, "min": 1400, "max": 2800},
+        {"zip": "64118", "sub": "Gladstone", "rent_factor": 0.010, "min": 1200, "max": 2400},
+        {"zip": "64152", "sub": "Parkville", "rent_factor": 0.008, "min": 1800, "max": 3800},
+        {"zip": "64014", "sub": "Blue Springs", "rent_factor": 0.009, "min": 1300, "max": 2700},
+        {"zip": "64081", "sub": "Lee's Summit", "rent_factor": 0.008, "min": 1600, "max": 3200},
+
+        # --- Oklahoma City Metro (OK) ---
+        {"zip": "73099", "sub": "Yukon", "rent_factor": 0.010, "min": 1200, "max": 2400},
+        {"zip": "73170", "sub": "South OKC/Moore", "rent_factor": 0.010, "min": 1200, "max": 2500},
+        {"zip": "73034", "sub": "Edmond", "rent_factor": 0.008, "min": 1600, "max": 3500},
+        {"zip": "73064", "sub": "Mustang", "rent_factor": 0.0095, "min": 1300, "max": 2600},
+
+        # --- Cincinnati Metro (OH) ---
+        {"zip": "45069", "sub": "West Chester", "rent_factor": 0.008, "min": 1800, "max": 3800},
+        {"zip": "45011", "sub": "Fairfield", "rent_factor": 0.009, "min": 1500, "max": 3000},
+
+        # --- Columbus Metro (OH) ---
+        {"zip": "43081", "sub": "Westerville", "rent_factor": 0.0075, "min": 1800, "max": 4000},
+        {"zip": "43123", "sub": "Grove City", "rent_factor": 0.0085, "min": 1500, "max": 3200},
+
+        # --- Louisville Metro (KY) ---
+        {"zip": "40245", "sub": "East Louisville", "rent_factor": 0.008, "min": 1700, "max": 4000}
     ]
     
-    all_market_leads = []
+    all_leads = []
 
     for market in markets:
-        location_str = f"{market['city']}, {market['state']}"
         try:
-            properties = scrape_property(
-                location=location_str,
-                listing_type="for_sale",
-                property_type=['SINGLE_FAMILY'],
-                past_days=7
-            )
-
-            if properties.empty:
+            # Scrape last 7 days to capture fresh inventory
+            props = scrape_property(location=market['zip'], listing_type="for_sale", property_type=['SINGLE_FAMILY'], past_days=7)
+            
+            if props.empty:
                 continue
 
-            # Filter for No HOA or Zero HOA fees
-            no_hoa = properties[
-                (properties['hoa_fee'].isna()) | (properties['hoa_fee'] == 0)
-            ].copy()
+            # CLEAN & FILTER
+            # 1. No HOA
+            df = props[(props['hoa_fee'].isna()) | (props['hoa_fee'] == 0)].copy()
+            # 2. Minimum Price Floor (Eliminate Auctions/Placeholders)
+            df = df[df['list_price'] > 50000]
 
-            if not no_hoa.empty:
-                # 1. Apply Rent Factor and Sanity Bands
-                no_hoa['est_monthly_rent'] = (
-                    no_hoa['list_price'] * market['rent_factor']
-                ).clip(market['rent_min'], market['rent_max'])
+            if not df.empty:
+                df['submarket'] = market['sub']
+                df['est_monthly_rent'] = (df['list_price'] * market['rent_factor']).clip(market['min'], market['max'])
+                df['net_cash_flow'] = df.apply(lambda r: estimate_monthly_cash_flow(r['list_price'], r['est_monthly_rent']), axis=1)
+                all_leads.append(df)
                 
-                # 2. Calculate Net Monthly Cash Flow
-                no_hoa['net_cash_flow'] = no_hoa.apply(
-                    lambda r: estimate_monthly_cash_flow(r['list_price'], r['est_monthly_rent']), 
-                    axis=1
-                )
-                all_market_leads.append(no_hoa)
-
         except Exception as e:
-            print(f"Error scouting {market['city']}: {e}")
+            print(f"Error in {market['zip']} ({market['sub']}): {e}")
 
-    if not all_market_leads:
-        return "No deals found this week that meet the 'No HOA' criteria."
+    if not all_leads:
+        return "No deals found in the specified Zip codes this week."
 
-    # Concatenate results and rank by the best dollar-for-dollar cash flow
-    final_df = pd.concat(all_market_leads)
-    top_10 = final_df.sort_values(by='net_cash_flow', ascending=False).head(10)
+    final_df = pd.concat(all_leads)
     
-    return format_realtor_report(top_10)
+    # Sort by top dollar cash flow and take top 10
+    top_results = final_df.sort_values(by='net_cash_flow', ascending=False).head(10)
+    return format_realtor_report(top_results)
 
 if __name__ == "__main__":
-    print("🚀 Starting Real Estate Scout...")
-    report_content = run_scout()
-    
-    print(report_content)
-    
-    print("Attempting to send email via realtor_notifier...")
-    status = send_realtor_email(report_content)
-    print(f"Final Status: {status}")
+    print("🚀 Starting Suburban Real Estate Sweep...")
+    report = run_scout()
+    print(report)
+    print(send_realtor_email(report))
