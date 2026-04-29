@@ -1,0 +1,28 @@
+name: Saturday Real Estate Scout
+on:
+  schedule:
+    # 14:00 UTC = 7:00 AM PT (Saturday morning)
+    - cron: '0 14 * * 6'
+  workflow_dispatch: # Run manually for testing
+
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Real Estate Scout
+        env:
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: python3 src/realtor_app/scout.py
