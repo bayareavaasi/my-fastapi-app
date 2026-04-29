@@ -1,13 +1,15 @@
 name: Daily Nifty IT Monitor
 on:
   schedule:
-    # 10:00 UTC is 3:30 PM IST (Mon-Fri)
+    # 10:45 UTC = 4:15 PM IST, 15 min after NSE close (Mon-Fri)
     - cron: '45 10 * * 1-5'
   workflow_dispatch: # Allows you to run it manually for testing
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Opt into Node.js 24 ahead of June 2 deadline
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,6 +24,5 @@ jobs:
 
       - name: Run Monitor
         env:
-          # This maps the GitHub Secret to the Environment Variable your code needs
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python3 src/app/monitor.py
