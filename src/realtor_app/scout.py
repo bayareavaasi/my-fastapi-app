@@ -11,11 +11,7 @@ except ImportError:
         return "⚠️ Fallback: realtor_notifier.py not found."
 
 def estimate_monthly_cash_flow(price, est_rent):
-    """
-    SRE Underwriting: 25% Down, 7% Interest.
-    Includes property tax, insurance, and 15% combined reserves.
-    """
-    if not price or price < 50000: return 0 # Guard against auctions/data errors
+    if not price or price < 50000: return 0
     
     property_tax_rate = 0.012 
     insurance_monthly = 125
@@ -35,7 +31,7 @@ def format_realtor_report(df):
     current_date = datetime.now().strftime('%d %b %Y')
     report = f"🏠 **Saturday Real Estate Scout: Weekly Suburban Sweep**\n"
     report += f"Generated: {current_date}\n"
-    report += "Criteria: Zip-Targeted, No HOA, Price > $50k\n"
+    report += "Criteria: Zip-Targeted, Established Homes (Pre-2023), No HOA, Price > $50k\n"
     report += "-------------------------------------------\n\n"
 
     for _, row in df.iterrows():
@@ -43,6 +39,7 @@ def format_realtor_report(df):
         report += (
             f"📍 **{row['street']}, {row['city']} {row['zip_code']}**\n"
             f"🏙️ Submarket: {row['submarket']}\n"
+            f"🏗️ Built: {int(row['year_built']) if not pd.isna(row['year_built']) else 'N/A'}\n"
             f"💰 Price: ${row['list_price']:,.0f}\n"
             f"💵 **Est. Net Cash Flow: ${row['net_cash_flow']:,.2f}/mo**\n"
             f"📈 Est. Rent: ${row['est_monthly_rent']:,.0f}/mo\n"
@@ -53,7 +50,6 @@ def format_realtor_report(df):
     return report
 
 def run_scout():
-    # Targeted Market Matrix
     markets = [
         # --- Indianapolis Metro (IN) ---
         {"zip": "46112", "sub": "Brownsburg", "rent_factor": 0.008, "min": 1400, "max": 2800},
@@ -92,17 +88,21 @@ def run_scout():
 
     for market in markets:
         try:
-            # Scrape last 7 days to capture fresh inventory
             props = scrape_property(location=market['zip'], listing_type="for_sale", property_type=['SINGLE_FAMILY'], past_days=7)
             
             if props.empty:
                 continue
 
             # CLEAN & FILTER
-            # 1. No HOA
+            # 1. Primary HOA Filter
             df = props[(props['hoa_fee'].isna()) | (props['hoa_fee'] == 0)].copy()
-            # 2. Minimum Price Floor (Eliminate Auctions/Placeholders)
+            # 2. Minimum Price Floor
             df = df[df['list_price'] > 50000]
+            
+            # 3. CRITICAL: SRE Anti-New-Construction Logic
+            # Filter out homes built in 2023 or later to avoid hidden builder HOAs
+            if 'year_built' in df.columns:
+                df = df[df['year_built'] < 2023]
 
             if not df.empty:
                 df['submarket'] = market['sub']
@@ -114,16 +114,13 @@ def run_scout():
             print(f"Error in {market['zip']} ({market['sub']}): {e}")
 
     if not all_leads:
-        return "No deals found in the specified Zip codes this week."
+        return "No established deals found in the specified Zip codes this week."
 
     final_df = pd.concat(all_leads)
-    
-    # Sort by top dollar cash flow and take top 10
     top_results = final_df.sort_values(by='net_cash_flow', ascending=False).head(10)
     return format_realtor_report(top_results)
 
 if __name__ == "__main__":
-    print("🚀 Starting Suburban Real Estate Sweep...")
     report = run_scout()
     print(report)
     print(send_realtor_email(report))
