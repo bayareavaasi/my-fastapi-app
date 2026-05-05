@@ -70,12 +70,12 @@ def has_hoa_signals(row) -> bool:
         return True
 
     # Layer 2: keyword scan on full listing description
-    text = str(row.get('text', '') or '').lower()
+    text = '' if pd.isna(row.get('text')) else str(row.get('text', '')).lower()
     if any(kw in text for kw in HOA_KEYWORDS):
         return True
 
     # Layer 3: subdivision name patterns in street field
-    street = str(row.get('street', '') or '').lower()
+    street = '' if pd.isna(row.get('street')) else str(row.get('street', '')).lower()
     if any(p in street for p in HOA_SUBDIVISION_PATTERNS):
         return True
 
