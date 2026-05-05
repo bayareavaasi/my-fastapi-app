@@ -15,7 +15,7 @@ def estimate_monthly_cash_flow(price, est_rent):
     SRE Underwriting: 25% Down, 7% Interest.
     Includes property tax, insurance, and 15% combined reserves.
     """
-    if not price or price < 50000: return 0 # Guard against auctions/data errors
+    if not price or price < 50000: return 0 
     
     property_tax_rate = 0.012 
     insurance_monthly = 125
@@ -33,12 +33,15 @@ def estimate_monthly_cash_flow(price, est_rent):
 
 def format_realtor_report(df):
     current_date = datetime.now().strftime('%d %b %Y')
-    report = f"🏠 **Saturday Real Estate Scout: Weekly Suburban Sweep**\n"
+    report = f"🏠 **Saturday Real Estate Scout: Diversified Suburban Sweep**\n"
     report += f"Generated: {current_date}\n"
-    report += "Criteria: Zip-Targeted, Established (Pre-2023), No HOA, No Pool, Price > $50k\n"
+    report += "Criteria: Top 2 per Zip, Pre-2023, No HOA, No Pool, Price > $50k\n"
     report += "-------------------------------------------\n\n"
 
-    for _, row in df.iterrows():
+    # Sort by Zip then Cash Flow to keep the report organized
+    df_sorted = df.sort_values(['zip_code', 'net_cash_flow'], ascending=[True, False])
+
+    for _, row in df_sorted.iterrows():
         yield_pct = (row['est_monthly_rent'] / row['list_price']) * 100
         report += (
             f"📍 **{row['street']}, {row['city']} {row['zip_code']}**\n"
@@ -54,7 +57,6 @@ def format_realtor_report(df):
     return report
 
 def run_scout():
-    # Targeted Market Matrix
     markets = [
         # --- Indianapolis Metro (IN) ---
         {"zip": "46112", "sub": "Brownsburg", "rent_factor": 0.008, "min": 1400, "max": 2800},
@@ -99,24 +101,17 @@ def run_scout():
                 continue
 
             # --- FILTER LAYER 1: Standard Exclusions ---
-            # 1. No HOA
             df = props[(props['hoa_fee'].isna()) | (props['hoa_fee'] == 0)].copy()
-            # 2. No Auctions ($50k floor)
             df = df[df['list_price'] > 50000]
 
             if not df.empty:
                 # --- FILTER LAYER 2: Advanced SRE Sanity Checks ---
-                
-                # A. Anti-Builder/New Construction (Removes hidden HOA builders)
                 if 'year_built' in df.columns:
                     df = df[df['year_built'] < 2023]
 
-                # B. Swimming Pool Exclusion
-                # We check description and style fields for pool-related terms
+                # Swimming Pool Exclusion
                 pool_keywords = ['pool', 'swimming', 'in-ground', 'inground', 'above ground']
-                
                 def check_no_pool(row):
-                    # Combine all searchable text fields
                     search_text = f"{str(row.get('style', ''))} {str(row.get('description', ''))}".lower()
                     return not any(word in search_text for word in pool_keywords)
 
@@ -126,20 +121,23 @@ def run_scout():
                     df['submarket'] = market['sub']
                     df['est_monthly_rent'] = (df['list_price'] * market['rent_factor']).clip(market['min'], market['max'])
                     df['net_cash_flow'] = df.apply(lambda r: estimate_monthly_cash_flow(r['list_price'], r['est_monthly_rent']), axis=1)
-                    all_leads.append(df)
+                    
+                    # NEW LOGIC: Take the Top 2 for this specific Zip Code
+                    top_2_in_zip = df.sort_values(by='net_cash_flow', ascending=False).head(2)
+                    all_leads.append(top_2_in_zip)
                 
         except Exception as e:
             print(f"Error in {market['zip']} ({market['sub']}): {e}")
 
     if not all_leads:
-        return "No deals found meeting all SRE criteria (Established, No HOA, No Pool)."
+        return "No deals found meeting SRE criteria in targeted Zips."
 
+    # Final concatenation of all "Top 2" results from each market
     final_df = pd.concat(all_leads)
-    top_results = final_df.sort_values(by='net_cash_flow', ascending=False).head(10)
-    return format_realtor_report(top_results)
+    return format_realtor_report(final_df)
 
 if __name__ == "__main__":
-    print("🚀 Starting Hardened Suburban Scout Sweep...")
+    print("🚀 Starting Diversified Suburban Scout Sweep...")
     report = run_scout()
     print(report)
     print(send_realtor_email(report))
