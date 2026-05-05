@@ -31,9 +31,14 @@ HOA_SUBDIVISION_PATTERNS = [
 ]
 
 def has_hoa_signals(row) -> bool:
-    """Safely checks for HOA signals across three layers."""
+    """
+    Returns True if any of three HOA signal layers are detected.
+    Layer 1 — explicit hoa_fee > 0
+    Layer 2 — keyword scan on listing description text
+    Layer 3 — subdivision name patterns in street address
+    """
     try:
-        # Layer 1: explicit hoa_fee > 0
+        # Layer 1: explicit fee published
         hoa_fee = row.get('hoa_fee')
         if pd.notna(hoa_fee) and hoa_fee > 0:
             return True
@@ -58,6 +63,7 @@ def has_hoa_signals(row) -> bool:
 # ---------------------------------------------------------------------------
 
 def estimate_monthly_cash_flow(price, est_rent):
+    """SRE Underwriting: 25% Down, 7% Interest, 15% Reserves."""
     if not price or price < 50000: return 0 
     
     property_tax_rate = 0.012 
@@ -82,6 +88,7 @@ def format_realtor_report(df):
     report += "Criteria: Top 2 per Zip, Signal-Filtered No-HOA, No Pool, Pre-2023\n"
     report += "-------------------------------------------\n\n"
 
+    # Sort by Zip then Cash Flow
     df_sorted = df.sort_values(['zip_code', 'net_cash_flow'], ascending=[True, False])
 
     for _, row in df_sorted.iterrows():
@@ -105,25 +112,30 @@ def format_realtor_report(df):
 
 def run_scout():
     markets = [
+        # Indianapolis Metro
         {"zip": "46112", "sub": "Brownsburg", "rent_factor": 0.008, "min": 1400, "max": 2800},
         {"zip": "46123", "sub": "Avon", "rent_factor": 0.008, "min": 1400, "max": 2800},
         {"zip": "46168", "sub": "Plainfield", "rent_factor": 0.0085, "min": 1300, "max": 2600},
         {"zip": "46239", "sub": "Franklin Township", "rent_factor": 0.0085, "min": 1400, "max": 2700},
         {"zip": "46143", "sub": "Greenwood", "rent_factor": 0.0085, "min": 1300, "max": 2600},
         {"zip": "46038", "sub": "Fishers", "rent_factor": 0.0075, "min": 1800, "max": 3500},
+        # Kansas City Metro
         {"zip": "64068", "sub": "Liberty", "rent_factor": 0.009, "min": 1400, "max": 2800},
         {"zip": "64118", "sub": "Gladstone", "rent_factor": 0.010, "min": 1200, "max": 2400},
         {"zip": "64152", "sub": "Parkville", "rent_factor": 0.008, "min": 1800, "max": 3800},
         {"zip": "64014", "sub": "Blue Springs", "rent_factor": 0.009, "min": 1300, "max": 2700},
         {"zip": "64081", "sub": "Lee's Summit", "rent_factor": 0.008, "min": 1600, "max": 3200},
+        # Oklahoma City Metro
         {"zip": "73099", "sub": "Yukon", "rent_factor": 0.010, "min": 1200, "max": 2400},
         {"zip": "73170", "sub": "South OKC/Moore", "rent_factor": 0.010, "min": 1200, "max": 2500},
         {"zip": "73034", "sub": "Edmond", "rent_factor": 0.008, "min": 1600, "max": 3500},
         {"zip": "73064", "sub": "Mustang", "rent_factor": 0.0095, "min": 1300, "max": 2600},
+        # Ohio Metros
         {"zip": "45069", "sub": "West Chester", "rent_factor": 0.008, "min": 1800, "max": 3800},
         {"zip": "45011", "sub": "Fairfield", "rent_factor": 0.009, "min": 1500, "max": 3000},
         {"zip": "43081", "sub": "Westerville", "rent_factor": 0.0075, "min": 1800, "max": 4000},
         {"zip": "43123", "sub": "Grove City", "rent_factor": 0.0085, "min": 1500, "max": 3200},
+        # Louisville Metro
         {"zip": "40245", "sub": "East Louisville", "rent_factor": 0.008, "min": 1700, "max": 4000}
     ]
     
@@ -131,6 +143,7 @@ def run_scout():
 
     for market in markets:
         try:
+            print(f"Scouting {market['sub']} ({market['zip']})...")
             props = scrape_property(
                 location=market['zip'], 
                 listing_type="for_sale", 
@@ -139,37 +152,45 @@ def run_scout():
             )
             if props.empty: continue
 
-            # Apply Logic
+            # --- FILTER LAYER 1: Explicit & Signal-Based HOA ---
             df = props[~props.apply(has_hoa_signals, axis=1)].copy()
             if df.empty: continue
-
+            
+            # --- FILTER LAYER 2: Auctions & New Construction ---
             df = df[df['list_price'] > 50000]
             if 'year_built' in df.columns:
                 df = df[df['year_built'] < 2023]
 
-            # Pool filter
+            # --- FILTER LAYER 3: Swimming Pool ---
             pool_keywords = ['pool', 'swimming', 'in-ground', 'inground', 'above ground']
             df = df[~df.apply(lambda r: any(w in f"{str(r.get('style',''))} {str(r.get('description',''))}".lower() for w in pool_keywords), axis=1)]
 
             if not df.empty:
+                # --- RECOMMENDED FIX: Remove duplicate addresses before picking top 2 ---
+                df = df.drop_duplicates(subset=['street'])
+
                 df['submarket'] = market['sub']
                 df['est_monthly_rent'] = (df['list_price'] * market['rent_factor']).clip(market['min'], market['max'])
                 df['net_cash_flow'] = df.apply(lambda r: estimate_monthly_cash_flow(r['list_price'], r['est_monthly_rent']), axis=1)
+                
+                # Zip-Level Diversification: Top 2 per Zip
                 all_leads.append(df.sort_values(by='net_cash_flow', ascending=False).head(2))
                 
         except Exception as e:
-            print(f"⚠️ Skipping {market['zip']}: {e}")
+            print(f"⚠️ Market Error {market['zip']}: {e}")
 
     if not all_leads:
         return "No deals found meeting criteria."
 
-    return format_realtor_report(pd.concat(all_leads))
+    final_df = pd.concat(all_leads)
+    return format_realtor_report(final_df)
 
 if __name__ == "__main__":
     try:
+        print("🚀 Starting Hardened Diversified Scout...")
         content = run_scout()
         print(content)
         send_realtor_email(content)
     except Exception as e:
-        print(f"FATAL ERROR: {e}")
+        print(f"FATAL: {e}")
         sys.exit(1)
