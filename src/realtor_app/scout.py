@@ -3,7 +3,7 @@ Weekly real-estate scout.
 
 Scrapes for-sale single-family listings (past 7 days) across the top-10
 investment ZIPs via homeharvest, filters out likely-HOA properties, pools
-and out-of-band construction (built before 1990 or after 2025), underwrites
+and out-of-band construction (built before 1980 or after 2025), underwrites
 each with market-specific investor tax rates, keeps listings with cash
 flow >= -$500/mo, and emails an appreciation-ranked report.
 
@@ -48,13 +48,16 @@ except ImportError:
 # appreciation (3-5yr outlook) is the primary criterion.
 CASH_FLOW_FLOOR = -500
 
-# Build-year band (revised Oct 2026): 1990-2025 only.
-# Rationale: pre-1990 stock concentrates roof-age insurance problems and
-# legacy systems (polybutylene plumbing, aluminum wiring, lead paint),
-# which the flat 15% reserve does not price. The 2025 top end re-admits
-# recent builds; the no-HOA signal filter still screens most new
-# subdivisions. Single constants -- relax MIN_YEAR_BUILT to soften.
-MIN_YEAR_BUILT = 1990
+# Build-year band (revised Oct 2026): 1980-2025 only.
+# Rationale: the hard hazards cluster pre-1980 -- lead paint (banned
+# 1978), aluminum branch wiring (~1965-73), knob-and-tube, end-of-life
+# galvanized plumbing. 1980s stock is modern-architecture (breaker
+# panels, grounded outlets) and its fixable risks fit a 2-3 week
+# rent-ready reno; pre-1990 insurance risk is priced via the analyzer's
+# pre-1990 insurance load rather than by exclusion. The 2025 top end
+# admits recent builds; the no-HOA signal filter still screens most
+# new subdivisions. Single constants -- MIN_YEAR_BUILT is the floor.
+MIN_YEAR_BUILT = 1980
 MAX_YEAR_BUILT = 2025
 
 
@@ -120,7 +123,7 @@ def format_realtor_report(df):
     report = f"🏠 **Real Estate Scout: Top-10 Investment ZIP Sweep**\n"
     report += f"Generated: {current_date}\n"
     report += ("Criteria: Appreciation-ranked, Top 2 per Zip, Signal-Filtered No-HOA, "
-               "No Pool, Built 1990-2025, Cash flow >= -$500/mo\n")
+               "No Pool, Built 1980-2025, Cash flow >= -$500/mo\n")
     report += "-------------------------------------------\n\n"
 
     # Sort by appreciation rank (trailing 5-yr where verified, else the
@@ -277,7 +280,10 @@ def run_scout():
                     market['min'], market['max'])
                 df['net_cash_flow'] = df.apply(
                     lambda r: estimate_monthly_cash_flow(
-                        r['list_price'], r['est_monthly_rent'], market['tax_rate']),
+                        r['list_price'], r['est_monthly_rent'], market['tax_rate'],
+                        year_built=(int(r['year_built'])
+                                    if 'year_built' in r and pd.notna(r.get('year_built'))
+                                    else None)),
                     axis=1)
 
                 # Cash-flow screen: small monthly losses acceptable

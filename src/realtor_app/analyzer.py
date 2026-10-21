@@ -5,7 +5,9 @@ Canonical assumptions (tune here to change every report at once):
 - Investment loan: 25% down, 30-yr fixed at 7.40% (Freddie Mac PMMS,
   week ending 2026-10-08)
 - Property tax: 1.2%/yr of list price (IN non-owner-occupied ballpark)
-- Landlord insurance: $125/mo
+- Landlord insurance: $125/mo ($160/mo for pre-1990 builds -- carriers
+  price older systems/roofs harder; the load prices that risk in the
+  model instead of excluding the stock outright)
 - Maintenance reserve: 10% of rent
 - Vacancy reserve: 5% of rent
 - Listings under $50k are treated as non-viable (auction/land/teardown)
@@ -20,12 +22,14 @@ MORTGAGE_RATE = 0.074
 MORTGAGE_TERM_MONTHS = 360
 PROPERTY_TAX_RATE = 0.012  # ~1.2% for non-owner occupied in IN
 INSURANCE_MONTHLY = 125
+INSURANCE_MONTHLY_PRE1990 = 160  # insurance load for pre-1990 builds
+PRE1990_YEAR = 1990
 MAINTENANCE_RESERVE_PCT = 0.10
 VACANCY_RESERVE_PCT = 0.05
 MIN_PRICE = 50000
 
 
-def estimate_monthly_cash_flow(price, est_rent, tax_rate=None):
+def estimate_monthly_cash_flow(price, est_rent, tax_rate=None, year_built=None):
     """
     Calculates estimated monthly net cash flow.
 
@@ -34,6 +38,9 @@ def estimate_monthly_cash_flow(price, est_rent, tax_rate=None):
     tax_rate: investor-effective annual property tax rate; defaults to
         PROPERTY_TAX_RATE (IN non-owner-occupied ballpark). Pass a
         market-specific rate for out-of-state investor math.
+    year_built: construction year, if known. Pre-1990 builds are
+        underwritten at INSURANCE_MONTHLY_PRE1990 instead of
+        INSURANCE_MONTHLY (guardrail for older-systems insurance risk).
     """
     if not price or price < MIN_PRICE:
         return 0
@@ -47,10 +54,13 @@ def estimate_monthly_cash_flow(price, est_rent, tax_rate=None):
 
     rate = PROPERTY_TAX_RATE if tax_rate is None else tax_rate
     monthly_taxes = (price * rate) / 12
+    insurance = (INSURANCE_MONTHLY_PRE1990
+                 if year_built is not None and year_built < PRE1990_YEAR
+                 else INSURANCE_MONTHLY)
     maintenance_reserves = est_rent * MAINTENANCE_RESERVE_PCT
     vacancy_reserves = est_rent * VACANCY_RESERVE_PCT
 
-    total_expenses = (monthly_mortgage + monthly_taxes + INSURANCE_MONTHLY +
+    total_expenses = (monthly_mortgage + monthly_taxes + insurance +
                       maintenance_reserves + vacancy_reserves)
 
     return est_rent - total_expenses
