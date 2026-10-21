@@ -3,9 +3,9 @@ Weekly real-estate scout.
 
 Scrapes for-sale single-family listings (past 7 days) across the top-10
 investment ZIPs via homeharvest, filters out likely-HOA properties, pools
-and new construction, underwrites each with market-specific investor tax
-rates, keeps listings with cash flow >= -$500/mo, and emails an
-appreciation-ranked report.
+and out-of-band construction (built before 1990 or after 2025), underwrites
+each with market-specific investor tax rates, keeps listings with cash
+flow >= -$500/mo, and emails an appreciation-ranked report.
 
 Market list researched Oct 2026 against: 3-5yr appreciation (primary),
 landlord insurance cost, investor property tax, hurricane/flood/wildfire
@@ -47,6 +47,15 @@ except ImportError:
 # Cash-flow floor: small monthly losses are acceptable because
 # appreciation (3-5yr outlook) is the primary criterion.
 CASH_FLOW_FLOOR = -500
+
+# Build-year band (revised Oct 2026): 1990-2025 only.
+# Rationale: pre-1990 stock concentrates roof-age insurance problems and
+# legacy systems (polybutylene plumbing, aluminum wiring, lead paint),
+# which the flat 15% reserve does not price. The 2025 top end re-admits
+# recent builds; the no-HOA signal filter still screens most new
+# subdivisions. Single constants -- relax MIN_YEAR_BUILT to soften.
+MIN_YEAR_BUILT = 1990
+MAX_YEAR_BUILT = 2025
 
 
 # ---------------------------------------------------------------------------
@@ -111,16 +120,22 @@ def format_realtor_report(df):
     report = f"🏠 **Real Estate Scout: Top-10 Investment ZIP Sweep**\n"
     report += f"Generated: {current_date}\n"
     report += ("Criteria: Appreciation-ranked, Top 2 per Zip, Signal-Filtered No-HOA, "
-               "No Pool, Pre-2023, Cash flow >= -$500/mo\n")
+               "No Pool, Built 1990-2025, Cash flow >= -$500/mo\n")
     report += "-------------------------------------------\n\n"
 
-    # Sort by appreciation outlook (best first, unknown last), then cash flow
-    df_sorted = df.sort_values(['appr', 'net_cash_flow'],
+    # Sort by appreciation rank (trailing 5-yr where verified, else the
+    # Zillow 1-yr forecast), then cash flow
+    df_sorted = df.sort_values(['rank_appr', 'net_cash_flow'],
                                ascending=[False, False], na_position='last')
 
     for _, row in df_sorted.iterrows():
         yield_pct = (row['est_monthly_rent'] / row['list_price']) * 100
-        appr_str = f"{row['appr']:+.1f}%" if pd.notna(row.get('appr')) else "n/a"
+        if pd.notna(row.get('trail5')):
+            appr_str = f"{row['trail5']:+.1f}%/yr trailing 5-yr"
+        elif pd.notna(row.get('appr')):
+            appr_str = f"{row['appr']:+.1f}%"
+        else:
+            appr_str = "n/a"
         report += (
             f"📍 **{row.get('street', 'N/A')}, {row.get('city', 'N/A')} {row.get('zip_code', '')}**\n"
             f"🏙️ Submarket: {row.get('submarket', 'N/A')}\n"
@@ -145,41 +160,57 @@ def run_scout():
     # Top-10 investment ZIPs, ranked by 3-5yr appreciation outlook (primary).
     # rent_factor/min/max: rent heuristic per ZIP (rent = price x factor, clamped).
     # tax_rate: investor-effective property tax (non-owner-occupant).
+    # trail5: trailing 5-yr annualized metro appreciation, FHFA HPI Q2 2026
+    #   (verified Oct 2026 for Knoxville/Indianapolis/Nashville; None where
+    #   not yet verified -- those markets rank on the Zillow forecast).
     # appr: Zillow metro appreciation forecast % (None where unpublished).
+    # price_cap: universal $450K guardrail (user revision Oct 2026);
+    #   53220 keeps its tighter $290K market cap.
     markets = [
         {"zip": "37918", "sub": "Fountain City / N. Knoxville, TN",
          "rent_factor": 0.0065, "min": 1300, "max": 2400,
-         "tax_rate": 0.0072, "appr": 3.9, "appr_note": "Zillow metro forecast",
+         "tax_rate": 0.0072, "trail5": 8.6, "appr": 3.9,
+         "appr_note": "FHFA 5-yr metro +51.1% total (Q2'26); Zillow 1-yr fcast +3.9%",
+         "price_cap": 450000,
          "note": "Cheapest landlord insurance of set; Shannondale Elem 9/10."},
         {"zip": "46229", "sub": "East Indy / Lawrence, IN",
          "rent_factor": 0.0082, "min": 1200, "max": 2200,
-         "tax_rate": 0.012, "appr": 2.9, "appr_note": "Zillow metro forecast",
-         "note": "Only cash-flow-positive of set; favor Lawrence Twp side for schools."},
+         "tax_rate": 0.02, "trail5": 6.2, "appr": 2.9,
+         "appr_note": "FHFA 5-yr metro +35.2% total (Q2'26); Zillow 1-yr fcast +2.9%",
+         "price_cap": 450000,
+         "note": "IN 2% investor tax cap verified (homestead 1% does NOT apply); favor Lawrence Twp side for schools; Indy jobs -1.1% YoY Aug'26 — watch."},
         {"zip": "43068", "sub": "Reynoldsburg / Columbus, OH",
          "rent_factor": 0.0068, "min": 1400, "max": 2400,
          "tax_rate": 0.015, "appr": 2.7, "appr_note": "Zillow metro forecast",
+         "price_cap": 450000,
          "note": "Intel/Anduril jobs; ZIP-level rent data thin — verify."},
         {"zip": "44126", "sub": "Fairview Park / Cleveland, OH",
          "rent_factor": 0.0065, "min": 1300, "max": 2200,
          "tax_rate": 0.022, "appr": 3.4, "appr_note": "Zillow metro forecast",
-         "note": "Investor tax ~2.3% drags cash flow; check Rocky River flood corridor per address."},
+         "price_cap": 450000,
+         "note": "Investor tax ~2.3% drags cash flow; check Rocky River flood corridor per address. At 7.40% screens ~$245K and under."},
         {"zip": "64138", "sub": "South KC / Raytown, MO",
          "rent_factor": 0.0071, "min": 1200, "max": 2000,
          "tax_rate": 0.01, "appr": 2.7, "appr_note": "Zillow metro forecast",
+         "price_cap": 450000,
          "note": "Thinnest ZIP-level data of set — verify; favor Raytown C-2 side."},
         {"zip": "63129", "sub": "Oakville / Mehlville / St. Louis, MO",
          "rent_factor": 0.0062, "min": 1400, "max": 2300,
          "tax_rate": 0.01, "appr": 2.2, "appr_note": "Zillow metro forecast",
+         "price_cap": 450000,
          "note": "ZIP-level rent data thin — verify."},
         {"zip": "37013", "sub": "Antioch / Nashville, TN",
-         "rent_factor": 0.0057, "min": 1600, "max": 2600,
-         "tax_rate": 0.007, "appr": 2.1, "appr_note": "Zillow metro forecast",
-         "note": "Soft renter market (8.3% vacancy); check FEMA Mill Creek corridor per address; favor Cane Ridge pocket."},
+         "rent_factor": 0.0070, "min": 1750, "max": 2600,
+         "tax_rate": 0.007, "trail5": 6.0, "appr": 2.1,
+         "appr_note": "FHFA 5-yr metro +34.0% total (Q2'26); Zillow 1-yr fcast +2.1%",
+         "price_cap": 450000,
+         "note": "Soft renter market (8.3% vacancy); check FEMA Mill Creek corridor per address; favor Cane Ridge pocket. Rent factor recalibrated Oct 2026 vs verified asking comps ($1,935-$2,550, median ~$2,110)."},
         {"zip": "35810", "sub": "NW Huntsville, AL",
          "rent_factor": 0.0067, "min": 1100, "max": 1800,
-         "tax_rate": 0.013, "appr": -1.2,
+         "tax_rate": 0.011, "appr": -1.2,
          "appr_note": "STALE Jun25-Jun26 vintage — ranked on jobs/cash flow",
-         "note": "Strongest job growth of set; AL Class II investor assessment (20%); verify Madison Co. millage."},
+         "price_cap": 450000,
+         "note": "Strongest job growth of set; Madison Co. tax verified ~1.1% (2026 bill $2,146 on $185K appraised, no homestead); AL Class II investor assessment (20%)."},
         {"zip": "53220", "sub": "Greenfield / Milwaukee, WI",
          "rent_factor": 0.0064, "min": 1300, "max": 2200,
          "tax_rate": 0.017, "appr": 3.2, "appr_note": "Zillow metro forecast",
@@ -189,6 +220,7 @@ def run_scout():
          "rent_factor": 0.0067, "min": 1400, "max": 2300,
          "tax_rate": 0.0163, "appr": None,
          "appr_note": "no published forecast — ranked on schools/market tightness",
+         "price_cap": 450000,
          "note": "Millard schools Niche A; ZIP spans 3 districts — favor Millard side; check Papillion Creek flood per address."},
     ]
 
@@ -211,12 +243,13 @@ def run_scout():
             if df.empty:
                 continue
 
-            # --- FILTER LAYER 2: Price band, Auctions & New Construction ---
+            # --- FILTER LAYER 2: Price band, Auctions & Build-Year Band ---
             df = df[df['list_price'] > 50000]
             if market.get('price_cap'):
                 df = df[df['list_price'] <= market['price_cap']]
             if 'year_built' in df.columns:
-                df = df[df['year_built'] < 2023]
+                df = df[(df['year_built'] >= MIN_YEAR_BUILT) &
+                        (df['year_built'] <= MAX_YEAR_BUILT)]
             if df.empty:
                 continue
 
@@ -233,6 +266,11 @@ def run_scout():
 
                 df['submarket'] = market['sub']
                 df['appr'] = market['appr']
+                df['trail5'] = market.get('trail5')
+                # Ranking key: trailing 5-yr appreciation where verified,
+                # otherwise the Zillow 1-yr forecast.
+                df['rank_appr'] = (market['trail5'] if market.get('trail5') is not None
+                                   else market['appr'])
                 df['appr_note'] = market['appr_note']
                 df['market_note'] = market['note']
                 df['est_monthly_rent'] = (df['list_price'] * market['rent_factor']).clip(

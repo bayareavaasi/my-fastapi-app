@@ -2,7 +2,8 @@
 Shared underwriting math for the real-estate scout.
 
 Canonical assumptions (tune here to change every report at once):
-- Investment loan: 25% down, 30-yr fixed at 7%
+- Investment loan: 25% down, 30-yr fixed at 7.40% (Freddie Mac PMMS,
+  week ending 2026-10-08)
 - Property tax: 1.2%/yr of list price (IN non-owner-occupied ballpark)
 - Landlord insurance: $125/mo
 - Maintenance reserve: 10% of rent
@@ -15,7 +16,7 @@ trusting a "positive" cash-flow number.
 """
 
 DOWN_PAYMENT_PCT = 0.25
-MORTGAGE_RATE = 0.07
+MORTGAGE_RATE = 0.074
 MORTGAGE_TERM_MONTHS = 360
 PROPERTY_TAX_RATE = 0.012  # ~1.2% for non-owner occupied in IN
 INSURANCE_MONTHLY = 125
