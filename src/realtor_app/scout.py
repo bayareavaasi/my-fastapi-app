@@ -2,8 +2,9 @@
 Weekly real-estate scout.
 
 Scrapes for-sale single-family listings (past 7 days) across the top-10
-investment ZIPs via homeharvest, filters out likely-HOA properties, pools
-and out-of-band construction (built before 1980 or after 2025), underwrites
+investment ZIPs via homeharvest, filters out likely-HOA properties, pools,
+non-active listings (Coming Soon / Hold / Pending / ...) and out-of-band
+construction (built before 1980 or after 2025), underwrites
 each with market-specific investor tax rates, keeps listings with cash
 flow >= -$500/mo, and emails an appreciation-ranked report.
 
@@ -123,7 +124,7 @@ def format_realtor_report(df):
     report = f"🏠 **Real Estate Scout: Top-10 Investment ZIP Sweep**\n"
     report += f"Generated: {current_date}\n"
     report += ("Criteria: Appreciation-ranked, Top 2 per Zip, Signal-Filtered No-HOA, "
-               "No Pool, Built 1980-2025, Cash flow >= -$500/mo\n")
+               "No Pool, Built 1980-2025, Active Only, Cash flow >= -$500/mo\n")
     report += "-------------------------------------------\n\n"
 
     # Sort by appreciation rank (trailing 5-yr where verified, else the
@@ -262,6 +263,37 @@ def run_scout():
                 lambda r: any(w in f"{str(r.get('style', ''))} {str(r.get('description', ''))}".lower()
                               for w in pool_keywords),
                 axis=1)]
+
+            # --- FILTER LAYER 4: Listing Status (Active only) ---
+            # homeharvest's for_sale scrape also surfaces listings that
+            # are not actually purchasable -- e.g. 1117 Bluewillow Ct
+            # (Oct 2026) displayed "Coming Soon/Hold" while the scout
+            # ranked it #1 on cash flow. Blacklist, not whitelist: a row
+            # is dropped only when its status or mls_status names a
+            # non-active state, so unknown/missing statuses pass
+            # through and a feed change can't silently empty the report.
+            NON_ACTIVE_STATUS_TOKENS = (
+                'coming_soon', 'pending', 'contingent', 'under_contract',
+                'sold', 'closed', 'off_market', 'hold', 'backup',
+                'withdrawn', 'expired', 'cancelled', 'canceled',
+            )
+
+            def _is_non_active(row):
+                for col in ('status', 'mls_status'):
+                    raw = row.get(col)
+                    if raw is None:
+                        continue
+                    norm = (str(raw).strip().lower()
+                            .replace(' ', '_').replace('-', '_'))
+                    if not norm or norm == 'nan':
+                        continue
+                    if any(tok in norm for tok in NON_ACTIVE_STATUS_TOKENS):
+                        return True
+                return False
+
+            df = df[~df.apply(_is_non_active, axis=1)]
+            if df.empty:
+                continue
 
             if not df.empty:
                 # Remove duplicate addresses before picking top 2
